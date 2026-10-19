@@ -246,6 +246,11 @@ public class App
      */
     public void printSalaries(ArrayList<Employee> employees)
     {
+        if (employees == null)
+        {
+            System.out.println("No employees");
+            return;
+        }
         // Print header
         System.out.println(String.format(
                 "%-10s %-15s %-20s %-8s",
