@@ -13,6 +13,9 @@ on:
       - main
       - develop
 
+permissions:
+  contents: write
+
 jobs:
   UnitTests:
     name: Unit Tests
@@ -84,14 +87,9 @@ jobs:
         if: always()
         run: docker rm -f employees || true
 
-
-
   Build:
     name: Build Run in Docker and Deploy Release
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -112,6 +110,7 @@ jobs:
           docker compose up --build --abort-on-container-exit
 
       - name: Copy Output
+        if: github.event_name == 'push'
         run: |
           container_id=$(docker compose ps -aq app)
 
@@ -133,15 +132,12 @@ jobs:
           branch: reports
           folder: reports
 
-      - name: Deploy GitHub Release
+      - name: Create GitHub Release
         if: github.event_name == 'push'
         uses: marvinpinto/action-automatic-releases@latest
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: false
-          automatic_release_tag: "latest"
+          automatic_release_tag: latest
           files: |
             ./target/*.jar
-
-            
-
