@@ -85,9 +85,14 @@ jobs:
         run: docker rm -f employees || true
 
 
+
   Build:
     name: Build Run in Docker and Deploy Release
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,11 +111,37 @@ jobs:
           mvn clean package -DskipTests
           docker compose up --build --abort-on-container-exit
 
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - name: Copy Output
+        run: |
+          container_id=$(docker compose ps -aq app)
+
+          if [ -z "$container_id" ]; then
+            echo "App container was not found."
+            exit 1
+          fi
+
+          working_dir=$(docker inspect --format='{{.Config.WorkingDir}}' "$container_id")
+          report_path="${working_dir%/}/reports"
+
+          echo "Copying reports from: $report_path"
+          docker container cp "$container_id:$report_path" ./reports
+
+      - name: Deploy Reports
+        if: github.event_name == 'push'
+        uses: JamesIves/github-pages-deploy-action@v4.2.5
+        with:
+          branch: reports
+          folder: reports
+
+      - name: Deploy GitHub Release
+        if: github.event_name == 'push'
+        uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           prerelease: false
           automatic_release_tag: "latest"
           files: |
             ./target/*.jar
+
+            
 
