@@ -90,6 +90,8 @@ jobs:
   Build:
     name: Build Run in Docker and Deploy Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -104,40 +106,64 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Package and Run docker compose
+      - name: Package and Run Docker Compose
         run: |
           mvn clean package -DskipTests
           docker compose up --build --abort-on-container-exit
 
-      - name: Copy Output
-        if: github.event_name == 'push'
+      - name: Check Report Location
         run: |
           container_id=$(docker compose ps -aq app)
 
+          echo "Container ID: $container_id"
+
           if [ -z "$container_id" ]; then
             echo "App container was not found."
+            docker compose ps -a
             exit 1
           fi
 
-          working_dir=$(docker inspect --format='{{.Config.WorkingDir}}' "$container_id")
-          report_path="${working_dir%/}/reports"
+          echo "Container working directory:"
+          docker inspect "$container_id" --format '{{.Config.WorkingDir}}'
 
-          echo "Copying reports from: $report_path"
-          docker container cp "$container_id:$report_path" ./reports
+          echo "Searching for report files:"
+          docker export "$container_id" | tar -tf - | grep -E 'reports/|DevelopmentSalaries.md' || true
 
-      - name: Deploy Reports
-        if: github.event_name == 'push'
-        uses: JamesIves/github-pages-deploy-action@v4.2.5
+          echo "Container logs:"
+          docker compose logs app
+
+      - name: Copy Reports from Container
+        run: |
+          container_id=$(docker compose ps -aq app)
+
+          mkdir -p reports
+
+          working_dir=$(docker inspect "$container_id" --format '{{.Config.WorkingDir}}')
+
+          echo "Container working directory: $working_dir"
+
+          docker cp "$container_id:${working_dir}/reports/." ./reports/
+
+          echo "Copied report files:"
+          ls -la reports/
+
+      - name: Deploy Reports to GitHub Branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          branch: reports
-          folder: reports
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: reports
+          publish_dir: ./reports
+          force_orphan: true
 
-      - name: Create GitHub Release
-        if: github.event_name == 'push'
+      - name: Create Release
         uses: marvinpinto/action-automatic-releases@latest
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
           prerelease: false
-          automatic_release_tag: latest
+          automatic_release_tag: "latest"
           files: |
             ./target/*.jar
+
+      - name: Stop Docker Compose
+        if: always()
+        run: docker compose down
